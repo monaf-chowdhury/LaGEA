@@ -1,0 +1,10 @@
+.DS_Store
+__pycache__
+data
+logs*
+imgs*
+saved_videos*
+saved_models*
+.cache/
+*.pyc
+train_video*

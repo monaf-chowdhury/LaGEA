@@ -79,11 +79,11 @@ def setup_logging(config):
 def setup_exp(config):
     # liv
     transform = T.Compose([T.ToTensor()])
-    liv = load_liv()        # Loading the LIV model
+    liv = load_liv()        
 
     # task description embedding
     with torch.no_grad():
-        token = clip.tokenize([TASKS[config.env_name]])         # Shape: torch.Size([1, 77])
+        token = clip.tokenize([TASKS[config.env_name]])         
         text_embedding = liv(input=token, modality="text")      # Getting the text embedding for the task instruction   shape: (1, 1024)
     text_embedding = text_embedding.detach().cpu().numpy()
     data = np.load(f"data/oracle/{config.env_name}/s0_c{config.camera_id}.npz")
@@ -161,7 +161,7 @@ def setup_exp(config):
     )
     processor = AutoProcessor.from_pretrained(model_path)
 
-    # -------- NEW: GPT-2 for feedback embeddings --------
+    # -------- GPT-2 for feedback embeddings --------
     gpt2_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
     gpt2_model = GPT2Model.from_pretrained("gpt2").to("cuda").eval()
     # -----------------------------------------------------
@@ -178,7 +178,7 @@ def setup_exp(config):
         goal_image,
         model,
         processor,
-        gpt2_tokenizer, gpt2_model,   # ← GPT2 returns
+        gpt2_tokenizer, gpt2_model,   
     )
 
 
@@ -190,7 +190,6 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
 
     # logging setup
     exp_name, logger = setup_logging(config)
-    csv_path = f"logs/{exp_name}.csv"
  
     # experiment setup
     (transform,
@@ -216,22 +215,6 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
         "eval_reward": eval_reward,
         "eval_success": eval_success,
     }]
-    os.makedirs("train_video", exist_ok=True)
-    EP_LOG_PATH = Path("logs") / f"{exp_name}_episodic.csv"
-    EP_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    # write header once if file doesn't exist
-    if not EP_LOG_PATH.exists():
-        with EP_LOG_PATH.open("w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "step", "eval_reward", "eval_success",
-                "task_reward", "vlm_reward",
-                "time", "success",
-                "batch_reward", "batch_vlm_reward",
-                "rho_eff", 
-            ])
-
     first_success_step = 0
 
     # trajectory embedding
@@ -260,7 +243,6 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
     lst_sac_step, lst_vlm_step = 0, 0
     policies = ["vlm", "sac"]
     use_relay = True
-    use_feedback = True
     episode_success_count = 0
     pos_cosine = neg_cosine = lag_cosine = 0
     pos_cosine_max = neg_cosine_max = lag_cosine_max = 0
@@ -275,7 +257,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
 
     for t in trange(1, config.max_timesteps + 1):
         if t <= config.start_timesteps:
-            action = env.action_space.sample()      # Numpy.ndarray, shape(4,)
+            action = env.action_space.sample()      # shape(4,)
         else:
             if use_relay:
                 if policies[(ep_step//relay_freq)%2] == "vlm":
@@ -291,14 +273,14 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
             else:
                 vlm_step += 1
                 action = vlm_agent.sample_action(obs)
-        next_obs, task_reward, terminated, truncated, info = env.step(action)   # Next_obs basically (39,) gives different positions, not image
+        next_obs, task_reward, terminated, truncated, info = env.step(action) 
 
         # vision language model reward
         image = env.mujoco_renderer.render(
             render_mode="rgb_array",
             camera_id=config.camera_id).copy()  # Shape: (256, 256, 3)
-        image = image[::-1] # Shape: (256, 256, 3)
-        episode_frames.append(image) # Store raw frame for Qwen feedback later
+        image = image[::-1] 
+        episode_frames.append(image)            # Store raw frame for Qwen feedback later
 
         image = crop_center(config, image)
         processed_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
@@ -339,55 +321,47 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
                 episode_success_count += 1
 
             frames = np.stack(episode_frames, axis = 0 )    # shape (500, H, W, 3)
-            sim_scores = (traj_embeddings[:ep_step] @ vlm_agent.goal_embedding.T).squeeze() #  shape (ep_step,)
+            sim_scores = (traj_embeddings[:ep_step] @ vlm_agent.goal_embedding.T).squeeze()
             keyframe_indices = get_keyframe(sim_scores, max_frames=16)
-            # 2) convert to dense weights (Gaussian window around each keyframe, etc.)
             fb_weights = keyframe_weights_from_indices(T=ep_step, indices=keyframe_indices, half_window=2,
-                            triangular=True, normalize=False).astype(np.float32)  # shape: (T,)
-            fb_weights = 0.25 + 0.75 * fb_weights  # floor 0.25, peak ~1.0 # some shaping everywhere but boosted at key frames
-            fb_weights = fb_weights / (fb_weights.mean() + 1e-6)  # <-- NEW: mean=1
-            
-            # fb_weights = fb_weights / (fb_weights.sum() + 1e-6)     # (optional) re-normalize to be safe
+                            triangular=True, normalize=False).astype(np.float32)  
+            fb_weights = 0.25 + 0.75 * fb_weights  # floor 0.25, peak ~1.0 
+            fb_weights = fb_weights / (fb_weights.mean() + 1e-6)  
 
             idx = np.linspace(0, frames.shape[0] - 1, num=64, dtype=int) 
             frames = frames[idx]
-            imageio.mimsave(f'train_video/output_video_{t//500}.mp4', frames, fps=30)     # To save the video frames in the folder
-            # feedback_text = qwen_feedback(model, processor, frames, config, success=episode_was_successful, model_path = "Qwen/Qwen2.5-VL-3B-Instruct") # getting the feedback based on image frames
-            feedback_text = qwen_feedback(model, processor, frames, config, success=episode_was_successful, model_path="Qwen/Qwen2.5-VL-3B-Instruct",
-                                            memory_path=mem_path, exp_name=exp_name)
+
+            feedback_text = qwen_feedback(model, processor, frames, config, 
+                                        success=episode_was_successful, model_path="Qwen/Qwen2.5-VL-3B-Instruct",
+                                        memory_path=mem_path, exp_name=exp_name)
             
             outcome = feedback_text.get('outcome', 'failure')
             primary_error = feedback_text.get('primary_error') or {} 
             error_code = primary_error.get('code', 'unknown')
             suggested_fix = feedback_text.get('suggested_fix', 'no fix')
 
-            # Build a compact textual representation; prefer summary, fallback to a structured string
             embedding_text = feedback_text.get("summary") or feedback_text.get("suggested_fix") or TASKS[config.env_name]
             if not embedding_text or not isinstance(embedding_text, str):
                 embedding_text = f"outcome={outcome}; error={error_code}; fix={suggested_fix}"
 
-            # === GPT-2 embedding: 0.5 * last-token + 0.5 * mean-pooled ===
+            # Feedback embedding
             with torch.no_grad():
                 enc = gpt2_tokenizer(embedding_text, return_tensors="pt", 
                                      truncation=True, max_length=128, add_special_tokens=True)
-                enc = {k: v.to("cuda") for k, v in enc.items()}  # input_ids, attention_mask
+                enc = {k: v.to("cuda") for k, v in enc.items()}  
                 out = gpt2_model(**enc)
-                hidden = out.last_hidden_state  # (1, T, 768)
+                hidden = out.last_hidden_state
 
                 # last token (causal “summary”)
-                last_tok = hidden[:, -1, :]  # (1, 768)
+                last_tok = hidden[:, -1, :]  
 
-                # mean pool over valid tokens
                 mask = enc.get("attention_mask", torch.ones(hidden.shape[:2], device=hidden.device))
-                maskf = mask.unsqueeze(-1).float()                         # (1, T, 1)
-                mean_tok = (hidden * maskf).sum(dim=1) / (maskf.sum(dim=1) + 1e-6)  # (1, 768)
+                maskf = mask.unsqueeze(-1).float()                         
+                mean_tok = (hidden * maskf).sum(dim=1) / (maskf.sum(dim=1) + 1e-6)  
 
-                gpt2_emb = 0.5 * last_tok + 0.5 * mean_tok                 # (1, 768)
+                gpt2_emb = 0.5 * last_tok + 0.5 * mean_tok
 
-            feedback_embedding = gpt2_emb.detach().cpu().numpy()  # (1, 768)
-            # ============ End GPT 2 Feedback embedding generation 
-
-            # replay_buffer.add_feedback(feedback_embedding)
+            feedback_embedding = gpt2_emb.detach().cpu().numpy()  # (1, 768) 
             replay_buffer.add_episode(episodic_buffer, feedback_embedding, fb_weights)
 
             # reset for next episode
@@ -449,8 +423,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
                     # merge logs
                     feedback_log_info.update(contrastive_log_info)
 
-                # ---- Build delta-shaped, evidence-gated fused reward (B,)
-                # --- Build components
+                # --- Build delta-shaped, evidence-gated fused reward (B,)
                 r_goal, r_fb, fused, a_jax = reward_model.get_fused_reward(
                     reward_model.proj_state,
                     batch.embeddings.astype(np.float32),
@@ -470,7 +443,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
                     alpha_used=alpha_used,
                 )
 
-                # 4) FuRL projection (pos/neg/lag) + policy update
+                # Projection (pos/neg/lag) + policy update
                 proj_log_info = reward_model.update_pos(embedding_batch)
                 log_info = vlm_agent.update(batch, batch_vlm_rewards)
 
@@ -497,7 +470,7 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
             else:
                 batch = replay_buffer.sample_with_mask(config.batch_size, config.l2_margin)
                 feedback_log_info = reward_model.update_feedback_alignment(batch)
-                # FuRL projection on negatives
+                # Projection on negatives
                 proj_log_info = reward_model.update_neg(batch)
                 # --- Build components (goal, feedback delta, fused, alpha) ---
                 r_goal, r_fb, fused, a_jax = reward_model.get_fused_reward(
@@ -612,41 +585,8 @@ def train_and_evaluate(config: ml_collections.ConfigDict):
                     f"vlm_reward: {lst_ep_vlm_reward:.2f}\n"
                 )
 
-        # --- Minimal episodic log at EPISODE END ---
-        if (terminated or truncated) :
-            if t > config.start_timesteps:
-                ep_row = [
-                    int(t),                                   # step
-                    float(eval_reward),                       # eval_reward
-                    float(eval_success),                      # eval_success
-                    float(lst_ep_task_reward),                # task_reward (episode)
-                    float(lst_ep_vlm_reward),                 # vlm_reward (episode)
-                    (time.time() - start_time) / 60.0,        # time (minutes since start)
-                    float(reward),                            # success (per-episode)
-                    float(batch.rewards.mean()),              # batch reward
-                    float(batch_vlm_rewards.mean()),          # batch vlm reward
-                    float(rho_eff),                           # rho_efficient
-                ]
-            else:
-                # before training starts → no batch/rho_eff yet
-                ep_row = [
-                    int(t),
-                    float(eval_reward),
-                    float(eval_success),
-                    float(lst_ep_task_reward),
-                    float(lst_ep_vlm_reward),
-                    (time.time() - start_time) / 60.0,
-                    # float(reward),
-                    0,
-                    0,   # batch reward not available
-                    0,   # batch vlm reward not available
-                    0,   # rho_eff not available
-                ]
-
-            with EP_LOG_PATH.open("a", newline="") as f:
-                csv.writer(f).writerow(ep_row)
         # if eval_success == 1:
-        #     print(f">>> Experiment Done. Massive Success. Early stopped")
+        #     print(f">>> Experiment Done. Success. Early stopped")
         #     break
 
     # save logs

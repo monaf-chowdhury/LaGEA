@@ -38,28 +38,28 @@ def prompt_model(config, success, historical_context=None):
     return prompt
 
 FEW_SHOTS = [
-# Failure: button press from top, approached from side
-{
-  "instruction": "press a button from the top",
-  "outcome":"failure",
-  "primary_error":{"code":"bad_approach_direction","explanation":"The gripper came from the side, sliding off the button instead of a vertical press."},
-  "secondary_factors":["insufficient_push_pull"],
-  "key_frame_indices":[18, 22],
-  "suggested_fix":"Approach from directly above the button; align gripper normal to the button surface, then press straight down.",
-  "confidence":0.85,
-  "summary":"No, the agent failed because it approached from the side and slid off instead of pressing straight down."
-},
-# Success: drawer-open with clear handle grasp and pull
-{
-  "instruction":"open a drawer",
-  "outcome":"success",
-  "primary_error":{"code":"wrong_object","explanation":"(n/a for success)"},
-  "secondary_factors":[],
-  "key_frame_indices":[9, 27, 41],
-  "suggested_fix":"(n/a)",
-  "confidence":0.9,
-  "summary":"Yes, the agent succeeded because it grasped the handle securely and pulled along the drawer's opening direction."
-}
+    # Failure: button press from top, approached from side
+    {
+    "instruction": "press a button from the top",
+    "outcome":"failure",
+    "primary_error":{"code":"bad_approach_direction","explanation":"The gripper came from the side, sliding off the button instead of a vertical press."},
+    "secondary_factors":["insufficient_push_pull"],
+    "key_frame_indices":[18, 22],
+    "suggested_fix":"Approach from directly above the button; align gripper normal to the button surface, then press straight down.",
+    "confidence":0.85,
+    "summary":"No, the agent failed because it approached from the side and slid off instead of pressing straight down."
+    },
+    # Success: drawer-open with clear handle grasp and pull
+    {
+    "instruction":"open a drawer",
+    "outcome":"success",
+    "primary_error":{"code":"wrong_object","explanation":"(n/a for success)"},
+    "secondary_factors":[],
+    "key_frame_indices":[9, 27, 41],
+    "suggested_fix":"(n/a)",
+    "confidence":0.9,
+    "summary":"Yes, the agent succeeded because it grasped the handle securely and pulled along the drawer's opening direction."
+    }
 ]
 
 ERROR_TAXONOMY = [
@@ -142,7 +142,7 @@ def qwen_feedback(model, processor, frames, config, success, model_path="Qwen/Qw
         + fewshots + "\n\n=== Begin Episode Analysis ===\n" + prompt
     )
 
-    # Retry until parsed structure is valid or max attempts hit
+    # Retry until parsed structure is valid 
     for attempt in range(10):
         raw = inference_from_frames(frames, full_prompt, processor, model, max_new_tokens=2048, temperature=0.5)
         parsed = _extract_json_and_sentence(raw, config=config)

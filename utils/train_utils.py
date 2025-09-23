@@ -122,7 +122,7 @@ def get_keyframe(similarities: np.ndarray,
         for idx in order:
             if far_enough(idx, kept, min_dist):
                 kept.append(idx)
-                if len(kept) >= int(max_frames * 0.7):  # reserve ~30% for coverage
+                if len(kept) >= int(max_frames * 0.7):  
                     break
 
     # Coverage fill: farthest-in-time points, weighted by saliency
@@ -194,7 +194,7 @@ def adaptive_rho_shaping(
     r_goal = np.asarray(r_goal, np.float32)
     r_fb   = np.asarray(r_fb,   np.float32)
 
-    # gentle pre-clip to keep deltas tame (uses existing knob)
+    # gentle pre-clip to keep deltas tame 
     if getattr(config, "shaping_clip_per_step", None) is not None:
         c = float(config.shaping_clip_per_step)
         fused = np.clip(fused, -c, +c)
@@ -202,10 +202,9 @@ def adaptive_rho_shaping(
     beta = float(getattr(config, "shaping_ema_beta", 0.2))
 
     # --- simple progress signal in [0,1] ---
-    pos_frac = float(np.mean((r_goal > 0).astype(np.float32)))   # fraction moving toward goal
+    pos_frac = float(np.mean((r_goal > 0).astype(np.float32)))    # fraction moving toward goal
     progress = max(success_rate_ema, pos_frac**2)                 # small early, rises as behavior improves
 
-    # --- map progress -> rho_eff in [0.05, 0.99) (no new hparams) ---
     rho_min, rho_max = 0.05, 0.99 - 1e-6
     rho_eff = rho_min + (rho_max - rho_min) * (1.0 - progress)
 
@@ -225,7 +224,6 @@ def adaptive_rho_shaping(
     # apply shaping
     shaped = fused * scale * fail_mask
 
-    # post-clip to env scale (no extra knob)
     post_clip = 1.0 * ema_env_abs
     shaped = np.clip(shaped, -post_clip, +post_clip)
 
@@ -237,6 +235,6 @@ def adaptive_rho_shaping(
         "env_abs_now": env_abs_now,
         "progress": progress,
     }
-    achieved = progress  # reuse this field
+    achieved = progress  
 
     return shaped, rho_eff, achieved, scale, ema_env_abs, ema_vlm_abs, ema_scale, dbg

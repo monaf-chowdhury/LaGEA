@@ -138,9 +138,8 @@ class DistanceBuffer:
                  max_size: int = int(1e6)):
         self.max_size = max_size
         self.ptr = 0
-        self.size = 0
-        self.fdb_ptr = 0                # pointer to position of feedback -> Monaf
-        self.successes = np.zeros(max_size, dtype=np.float32) # New: To store success labels
+        self.size = 0           
+        self.successes = np.zeros(max_size, dtype=np.float32) 
 
         self.observations = np.zeros((max_size, obs_dim))
         self.actions = np.zeros((max_size, act_dim))
@@ -150,7 +149,7 @@ class DistanceBuffer:
         self.embeddings = np.zeros((max_size, emb_dim))
         self.next_embeddings = np.zeros((max_size, emb_dim))
         self.distances = np.zeros((max_size))
-        self.feedback_embeddings = np.zeros((max_size, fb_dim), dtype=np.float32) # Feedback buffer
+        self.feedback_embeddings = np.zeros((max_size, fb_dim), dtype=np.float32) 
         self.keyframe_weights = np.zeros(max_size, dtype=np.float32)
 
 
@@ -161,7 +160,7 @@ class DistanceBuffer:
             reward: float,
             done: float,
             embedding: np.ndarray,
-            success: float, # New: Pass the success status of the step
+            success: float, 
             distance: float = 0):
 
         self.observations[self.ptr] = observation
@@ -170,7 +169,7 @@ class DistanceBuffer:
         self.rewards[self.ptr] = reward
         self.discounts[self.ptr] = 1 - done
         self.embeddings[self.ptr] = embedding
-        self.successes[self.ptr] = success # Store the success label
+        self.successes[self.ptr] = success 
         self.distances[self.ptr] = distance
 
         self.ptr = (self.ptr + 1) % self.max_size
@@ -196,7 +195,7 @@ class DistanceBuffer:
         N = len(transitions)
         idxs = (self.ptr + np.arange(N)) % self.max_size
 
-        # unpack into batched arrays
+        
         obs_batch      = np.stack([t[0] for t in transitions], axis=0)
         act_batch      = np.stack([t[1] for t in transitions], axis=0)
         next_obs_batch = np.stack([t[2] for t in transitions], axis=0)
@@ -211,7 +210,7 @@ class DistanceBuffer:
         fb_batch = np.broadcast_to(feedback_embedding, (N, feedback_embedding.shape[-1]))
         self.keyframe_weights[idxs] = fb_weights
 
-        # one‐shot writes
+        
         self.observations[idxs]        = obs_batch
         self.actions[idxs]             = act_batch
         self.next_observations[idxs]   = next_obs_batch
@@ -223,7 +222,7 @@ class DistanceBuffer:
         self.distances[idxs]           = dist_batch
         self.feedback_embeddings[idxs] = fb_batch
 
-        # advance ring pointers
+        
         self.ptr  = (self.ptr + N) % self.max_size
         self.size = min(self.size + N, self.max_size)
 
@@ -240,9 +239,9 @@ class DistanceBuffer:
                           discounts=self.discounts[idx],
                           next_observations=self.next_observations[idx],
                           embeddings=self.embeddings[idx],
-                          feedback_embeddings=self.feedback_embeddings[idx],  # feedback in batch
+                          feedback_embeddings=self.feedback_embeddings[idx],  
                           masks=masks,
-                          successes=self.successes[idx], # Sample the success labels
+                          successes=self.successes[idx], 
                           keyframe_weights= self.keyframe_weights[idx],
                           next_embeddings=self.next_embeddings[idx])
 
@@ -256,8 +255,8 @@ class DistanceBuffer:
                               discounts=self.discounts[idx],
                               next_observations=self.next_observations[idx],
                               embeddings=self.embeddings[idx],
-                              feedback_embeddings=self.feedback_embeddings[idx], # ← feedback here
-                              successes=self.successes[idx], # Sample the success labels)    
+                              feedback_embeddings=self.feedback_embeddings[idx], 
+                              successes=self.successes[idx],     
                               keyframe_weights = self.keyframe_weights[idx],
                               next_embeddings=self.next_embeddings[idx])
 

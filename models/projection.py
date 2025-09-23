@@ -36,11 +36,11 @@ class RewardModel:
                  lr: float = 1e-4,
                  margin: float = 0.1,
                  emb_dim: int = 1024,
-                 fb_emb_dim: int = 768,         # ← NEW: GPT-2 dims for feedback
+                 fb_emb_dim: int = 768,         # GPT-2 dims for feedback
                  ckpt_dir: str = None,
                  text_embedding: jnp.ndarray = None,
                  goal_embedding: jnp.ndarray = None,
-                 # --- NEW: alignment hyperparams ---
+                 # --- Alignment hyperparams ---
                  tau_bce: float = 0.25,     # temperature for BCE-style diagonal loss
                  tau_nce: float = 0.07,     # temperature for InfoNCE
                  lambda_bce: float = 1.0,   # weight for BCE loss
@@ -49,7 +49,7 @@ class RewardModel:
         self.margin = margin
         self.text_embedding = text_embedding
         self.goal_embedding = goal_embedding
-        # NEW alignment hyperparameters
+        # alignment hyperparameters
         self.tau_bce = tau_bce
         self.tau_nce = tau_nce
         self.lambda_bce = lambda_bce
@@ -283,59 +283,6 @@ class RewardModel:
         fused = (1.0 - a) * r_goal + a * r_fb
         return r_goal, r_fb, fused, a
 
-    """
-    @functools.partial(jax.jit, static_argnames=("self"))
-    def get_vlm_reward(self, proj_state, img_embeddings):
-        proj_img_embeddings = self.proj.apply(
-            {"params": proj_state.params}, img_embeddings,
-            method=self.proj.encode_image)
-        proj_text_embedding = self.proj.apply(
-            {"params": proj_state.params}, self.text_embedding,
-            method=self.proj.encode_text)
-        cosine_similarity = optax.cosine_similarity(proj_img_embeddings,
-                                                    proj_text_embedding)
-        return cosine_similarity
-    """
-    '''
-    @functools.partial(jax.jit, static_argnames=("self"))
-    def get_feedback_reward(self, proj_state, img_embeddings, feedback_embeddings, key_frame_weights=None):
-        proj_img_embeddings = self.proj.apply(
-            {"params": proj_state.params}, img_embeddings,
-            method=self.proj.encode_image)
-        proj_feedback_embedding = self.proj.apply(
-            {"params": proj_state.params}, feedback_embeddings,
-            method=self.proj.encode_feedback)
-        cosine_similarity = optax.cosine_similarity(proj_img_embeddings, proj_feedback_embedding)
-        # === Temporal grounding via JAX-pure weighting ===
-        if key_frame_weights is not None:
-            """
-            T = cosine_similarity.shape[0]
-            weights = jnp.zeros((T,), dtype=jnp.float32)
-
-            # Create an array of shape (num_keyframes, 5) for each offset
-            offsets = jnp.arange(-2, 3)  # [-2, -1, 0, 1, 2]
-            key_idx = jnp.array(key_frame_indices)
-            expanded = key_idx[:, None] + offsets[None, :]  # shape (K, 5)
-            expanded = expanded.reshape(-1)  # shape (K * 5,)
-
-            # Clamp to valid frame indices
-            expanded = jnp.clip(expanded, 0, T - 1)
-
-            # Count occurrences using bincount
-            weights = weights.at[expanded].add(1.0)
-            weights = weights / (jnp.sum(weights) + 1e-6)
-
-            cosine_similarity *= weights  # Apply weighting
-            """
-            cosine_similarity = cosine_similarity * key_frame_weights
-        return cosine_similarity
-    '''
-    """
-    @functools.partial(jax.jit, static_argnames=("self"))
-    def get_fused_reward(self, vlm_reward, feedback_reward, alpha = 0.5):
-        reward =  (1.0 - alpha) * vlm_reward + alpha * feedback_reward     # along batch
-        return reward
-    """
     @functools.partial(jax.jit, static_argnames=("self",))
     def train_feedback_step(self,
                             batch_img_embeddings: jnp.ndarray,
@@ -444,7 +391,7 @@ class RewardModel:
         )
         return log_info
     
-    # ===== New, weighted symmetric contrastive objectives (drop-in) =====
+    # ===== Weighted symmetric contrastive objectives (drop-in) =====
     @functools.partial(jax.jit, static_argnames=("self", "tau", "label_smoothing", "lam_align", "lam_uniform"),)
     def train_feedback_contrastive_step_weighted(
         self,
