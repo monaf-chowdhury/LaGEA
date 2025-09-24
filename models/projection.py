@@ -62,7 +62,7 @@ class RewardModel:
         self.temp_goal  = 0.05     # temperature/slope for goal potential squashing
         self.temp_fb    = 0.15     # temperature/slope for feedback delta squashing
         self.alpha_base = 0.50     # base weight for feedback vs goal
-        self.use_goal_image = True # if you want to blend goal image potential
+        self.use_goal_image = True 
 
         # Gating Hyperparameters
         self.alpha_min    = 0.20
@@ -81,8 +81,8 @@ class RewardModel:
             _ = model.encode_text(text_embedding)
             _ = model.encode_image(image_embeddings)
             _ = model.encode_feedback(feedback_embeddings)
-            return 1.0 # Return a dummy value
-        # These keyword arguments now match the function definition above.
+            return 1.0 
+        
         proj_params = self.proj.init(
             {'params': key},
             text_embedding=dummy_emb,
@@ -90,11 +90,7 @@ class RewardModel:
             feedback_embeddings=dummy_fb,
             method=init_all_encoders
         )['params']
-        """
-        proj_params = self.proj.init(key,
-                                     jnp.ones([1, 1024], dtype=jnp.float32),
-                                     dummy_emb)["params"]
-        """
+
         self.proj_state = train_state.TrainState.create(
             apply_fn=self.proj.apply,
             params=proj_params,
@@ -110,7 +106,6 @@ class RewardModel:
 
     @functools.partial(jax.jit, static_argnames=("self",))
     def _cos_sim(self, a, b):
-        # a, b: (B, D) or (D,) broadcastable; assume not normalized
         a_n = self._l2_normalize(a)
         b_n = self._l2_normalize(b)
         return jnp.sum(a_n * b_n, axis=-1)  # in [-1, 1]
@@ -144,8 +139,8 @@ class RewardModel:
         reliability: float | None = None,
     ):
         """
-        Returns a Python float for the scalar α actually used to mix goal vs feedback
-        (with agreement computed on-device). consensus/reliability can be None.
+        Returns a Python float for the scalar alpha actually used to mix goal vs feedback
+        (with agreement computed on-device)
         """
         agree = self.feedback_task_agreement(proj_state, feedback_embeddings)  # jnp scalar in [0,1]
         a = self._blend_alpha(
@@ -161,9 +156,9 @@ class RewardModel:
         """Agreement between instruction text and feedback text → [0,1]."""
         z_txt = self.proj.apply({"params": proj_state.params}, self.text_embedding,     method=self.proj.encode_text)
         z_fb  = self.proj.apply({"params": proj_state.params}, feedback_embeddings,     method=self.proj.encode_feedback)
-        cos   = self._cos_sim(z_txt, z_fb)  # can be (B,) or scalar, broadcast ok
+        cos   = self._cos_sim(z_txt, z_fb)  
         cos   = jnp.mean(cos)
-        cos   = jnp.maximum(cos, self.agree_floor)  # avoid penalizing slight negatives too harshly
+        cos   = jnp.maximum(cos, self.agree_floor)  
         return 0.5 * (cos + 1.0)  # → [0,1]
 
     # ---------- Goal/Instruction potential ----------
@@ -178,7 +173,6 @@ class RewardModel:
 
     @functools.partial(jax.jit, static_argnames=("self",))
     def get_goal_image_potential(self, proj_state, img_embeddings):
-        # If you have a goal image embedding (self.goal_embedding)
         z_img  = self.proj.apply({"params": proj_state.params}, img_embeddings,    method=self.proj.encode_image)
         z_goal = self.proj.apply({"params": proj_state.params}, self.goal_embedding, method=self.proj.encode_image)
         cos    = self._cos_sim(z_img, z_goal)               # [-1, 1]
@@ -191,14 +185,13 @@ class RewardModel:
         pot_text = self.get_goal_text_potential(proj_state, img_embeddings)
         if hasattr(self, "goal_embedding") and self.goal_embedding is not None and getattr(self, "use_goal_image", False):
             pot_goal = self.get_goal_image_potential(proj_state, img_embeddings)
-            # simple average; adjust if you prefer weighted
+            # simple average
             return 0.5 * (pot_text + pot_goal)
         return pot_text
 
     # ---------- Goal delta shaping ----------
     @functools.partial(jax.jit, static_argnames=("self",))
     def get_goal_delta_reward(self, proj_state, img_t, img_tp1):
-        # reuse potential (already tanh-bounded)-> take a difference of potentials
         phi_t   = self.get_vlm_reward(proj_state, img_t)
         phi_tp1 = self.get_vlm_reward(proj_state, img_tp1)
         delta = self.gamma_fb * phi_tp1 - phi_t
@@ -209,12 +202,12 @@ class RewardModel:
     def get_feedback_delta_reward(
         self,
         proj_state,
-        img_t,              # (B, D_img)   state t
-        img_tp1,            # (B, D_img)   state t+1
-        feedback_embeddings,# (B, D_fb) or (1, D_fb)
-        key_frame_weights=None,  # (B,) or None
-        confidence=None,         # (B,) or scalar in [0,1] or None
-        gamma=None               # scalar or None
+        img_t,                      # (B, D_img)   state t
+        img_tp1,                    # (B, D_img)   state t+1
+        feedback_embeddings,        # (B, D_fb) or (1, D_fb)
+        key_frame_weights=None,     # (B,) or None
+        confidence=None,            # (B,) or scalar in [0,1] or None
+        gamma=None                  # scalar or None
     ):
         # encode
         z_t   = self.proj.apply({"params": proj_state.params}, img_t,   method=self.proj.encode_image)
@@ -226,20 +219,19 @@ class RewardModel:
         sim_tp1 = self._cos_sim(z_tp1, z_fb)   # (B,)
 
         g = jnp.array(self.gamma_fb if gamma is None else gamma, dtype=jnp.float32)
-        delta = g * sim_tp1 - sim_t            # (B,) can be [-2, 2] in theory
+        delta = g * sim_tp1 - sim_t            
 
         # gates
         w = jnp.ones_like(delta)
         if key_frame_weights is not None:
             w = w * jnp.asarray(key_frame_weights).reshape(-1)
         if confidence is not None:
-            # allow scalar or vector confidence in [0,1]
+            
             conf = jnp.asarray(confidence)
             if conf.ndim == 0:
                 conf = jnp.ones_like(delta) * conf
             w = w * jnp.clip(conf, 0.0, 1.0)
 
-        # scale to a comfortable range with tanh temperature
         delta_scaled = jnp.tanh(delta / self.temp_fb)  # [-1,1] emphasizing sign & magnitude
         return w * delta_scaled
 
@@ -252,26 +244,22 @@ class RewardModel:
         img_tp1,
         feedback_embeddings,
         key_frame_weights=None,
-        # confidence is intentionally unused now
         confidence=None,
         alpha=None,
-        consensus=None,      # ∈ [0,1], from K-sample self-consistency (host-side)
-        reliability=None     # ∈ [0,1], from EMA per error code (host-side)
+        consensus=None,      
+        reliability=None     
     ):
         # r_goal = self.get_vlm_reward(proj_state, img_t)  # [-1,1]
         r_goal = ( self.get_goal_delta_reward(proj_state, img_t, img_tp1)
                if getattr(self, "use_goal_delta", False)
                else self.get_vlm_reward(proj_state, img_t) )
     
-
-        # directional feedback delta (already keyframe-gated inside)
         r_fb   = self.get_feedback_delta_reward(
             proj_state, img_t, img_tp1, feedback_embeddings,
             key_frame_weights=key_frame_weights,
-            confidence=None   # don't use LLM "confidence"
+            confidence=None   
         )
-
-        # compute agreement on-device to stay JIT-friendly
+        
         agree = self.feedback_task_agreement(proj_state, feedback_embeddings)  # [0,1] scalar
 
         base = self.alpha_base if (alpha is None) else alpha
@@ -431,7 +419,7 @@ class RewardModel:
             z_img = self.proj.apply({"params": params}, batch.embeddings,          method=self.proj.encode_image)
             z_fb  = self.proj.apply({"params": params}, batch.feedback_embeddings, method=self.proj.encode_feedback)
 
-            # (Optional) project goal once for gating
+            # Project goal once for gating
             z_goal = self.proj.apply({"params": params}, self.goal_embedding,      method=self.proj.encode_image)
 
             # Normalize to unit sphere for cosine
@@ -441,7 +429,6 @@ class RewardModel:
 
             B = z_img.shape[0]
             # --- Per-example gates/weights ---
-            # key-frame weights (already [0,1] and typically normalized per-episode)
             w_kf = jnp.asarray(batch.keyframe_weights).reshape(-1)
 
             # success gate: 0.5 for fail, 1.0 for success (soft boost to positives)
@@ -517,7 +504,6 @@ class RewardModel:
         lam_uniform: float = 1e-3,
     ):
         """
-        Public entrypoint. Pass the *same minibatch* you already use elsewhere:
         requires batch.embeddings, batch.feedback_embeddings, batch.successes, batch.keyframe_weights.
         """
         self.proj_state, log_info = self.train_feedback_contrastive_step_weighted(
