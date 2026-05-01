@@ -19,7 +19,7 @@ import torch
 import torchvision.transforms as T
 
 from tqdm import trange
-from models import SACAgent, FuRLAgent, RewardModel
+from models import SACAgent, FuRLAgent, RewardModel, LaGEAAgent
 from utils import (TASKS, DistanceBuffer, EmbeddingBuffer, log_git, get_keyframe, keyframe_weights_from_indices, adaptive_rho_shaping,
                    get_logger, make_env, load_liv)
 from feedback import qwen_feedback
@@ -115,7 +115,7 @@ def setup_exp(config):
     goal_embedding = goal_embedding.detach().cpu().numpy()  # Shape: (1, 1024)
 
     # fixed LIV representation projection
-    vlm_agent = FuRLAgent(obs_dim=obs_dim,
+    vlm_agent = LaGEAAgent(obs_dim=obs_dim,
                           act_dim=act_dim,
                           max_action=max_action,
                           seed=config.seed,
